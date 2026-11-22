@@ -16,6 +16,9 @@ android {
 
     buildTypes {
         release {
+            // Debug key keeps CI release APK installable for testing.
+            // Replace with a private upload key before publishing to Google Play.
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
