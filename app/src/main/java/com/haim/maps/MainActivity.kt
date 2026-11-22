@@ -28,8 +28,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.activity.OnBackPressedCallback
-import java.net.HttpURLConnection
-import java.net.URL
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -81,7 +79,7 @@ class MainActivity : ComponentActivity() {
 
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? =
-                    interceptDesktopMapsRequest(request) ?: super.shouldInterceptRequest(view, request)
+                    super.shouldInterceptRequest(view, request)
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
@@ -195,46 +193,6 @@ class MainActivity : ComponentActivity() {
         webView.loadUrl(url, headers)
     }
 
-    /** Original desktop-mode Maps request handling, including cookies and response headers. */
-    private fun interceptDesktopMapsRequest(request: WebResourceRequest?): WebResourceResponse? {
-        if (!isDesktopMode || request == null || request.method != "GET") return null
-        val requestUrl = request.url.toString()
-        val isMapsRequest = requestUrl.contains("google.com/maps") ||
-            requestUrl.contains("google.co.il/maps") || requestUrl.contains("maps.google.")
-        if (!isMapsRequest) return null
-
-        var connection: HttpURLConnection? = null
-        return try {
-            connection = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                instanceFollowRedirects = false
-                request.requestHeaders.forEach { (key, value) -> setRequestProperty(key, value) }
-                setRequestProperty("Sec-CH-UA-Mobile", "?0")
-                setRequestProperty("Sec-CH-UA-Platform", "\"Windows\"")
-                setRequestProperty("User-Agent", DESKTOP_USER_AGENT)
-                CookieManager.getInstance().getCookie(requestUrl)?.let { setRequestProperty("Cookie", it) }
-            }
-
-            val responseCode = connection.responseCode
-            val mimeType = (connection.contentType ?: "text/html").substringBefore(";")
-            val encoding = connection.contentEncoding ?: "UTF-8"
-            val responseHeaders = mutableMapOf<String, String>()
-            connection.headerFields.forEach { (key, values) ->
-                if (key != null && !values.isNullOrEmpty()) responseHeaders[key] = values.joinToString(",")
-            }
-            connection.headerFields["Set-Cookie"]?.forEach {
-                CookieManager.getInstance().setCookie(requestUrl, it)
-            }
-            val stream = if (responseCode >= 400) connection.errorStream else connection.inputStream
-            WebResourceResponse(mimeType, encoding, responseCode,
-                connection.responseMessage ?: "OK", responseHeaders, stream)
-        } catch (error: Exception) {
-            error.printStackTrace()
-            try { connection?.disconnect() } catch (_: Exception) { }
-            null
-        }
-    }
-
     /** The original JavaScript device/viewport overrides used by the toolbar's desktop toggle. */
     private fun buildDesktopOverrideScript(desktop: Boolean): String {
         val availableCssWidth = (if (::webView.isInitialized && webView.width > 0) webView.width / resources.displayMetrics.density else resources.displayMetrics.widthPixels / resources.displayMetrics.density).toInt().coerceAtLeast(1)
@@ -260,23 +218,14 @@ class MainActivity : ComponentActivity() {
                 Object.defineProperty(navigator.userAgentData, 'mobile', { get: () => ${!desktop} });
                 if ($desktop) Object.defineProperty(navigator.userAgentData, 'platform', { get: () => 'Windows' });
             }
-            Object.defineProperty(navigator, 'maxTouchPoints', { get: () => ${if (desktop) 0 else 5} });
+            // Keep the WebView's real touch capability even while requesting desktop layout.
             if ($desktop) {
                 Object.defineProperty(window.screen, 'width', { get: () => $desktopWidth });
                 Object.defineProperty(window.screen, 'availWidth', { get: () => $desktopWidth });
                 Object.defineProperty(window.screen, 'height', { get: () => $desktopHeight });
                 Object.defineProperty(window.screen, 'availHeight', { get: () => $desktopHeight });
                 Object.defineProperty(window, 'devicePixelRatio', { get: () => 1 });
-                if (!window.__originalMatchMedia) {
-                    window.__originalMatchMedia = window.matchMedia;
-                    window.matchMedia = function(query) {
-                        if (typeof query === 'string' && query.includes('(pointer: coarse)'))
-                            return { matches: false, media: query, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false };
-                        if (typeof query === 'string' && query.includes('(pointer: fine)'))
-                            return { matches: true, media: query, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false };
-                        return window.__originalMatchMedia(query);
-                    };
-                }
+                // Do not spoof pointer media queries: Maps needs to detect the actual touchscreen.
             }
         })();
     """.trimIndent()
