@@ -1,0 +1,6 @@
+{
+  "name": "Google Maps Android",
+  "package": "com.haim.maps",
+  "version": "1.0",
+  "description": "Minimal Android WebView app for Google Maps"
+}
