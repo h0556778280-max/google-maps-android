@@ -286,16 +286,16 @@ class MainActivity : ComponentActivity() {
             contentDescription = "סרגל כלים"
         }
 
-        addTool("‹", "הדף הקודם") { if (webView.canGoBack()) webView.goBack() }
-        addTool("›", "הדף הבא") { if (webView.canGoForward()) webView.goForward() }
-        addTool("↻", "רענון") { webView.reload(); hideFloatingBar() }
+        addTool("‹", "הדף הקודם", { if (webView.canGoBack()) webView.goBack() })
+        addTool("›", "הדף הבא", { if (webView.canGoForward()) webView.goForward() })
+        addTool("↻", "רענון", { webView.reload(); hideFloatingBar() })
         addTool(if (isDesktopMode) "▤" else "▣", if (isDesktopMode) "תצוגת מחשב פעילה — מעבר לתצוגת נייד" else "הפעלת תצוגת מחשב", { toggleDesktopMode() }, { showDesktopSizeDialog() })
         addDivider()
-        addTool("◉", "כניסה ובחירת חשבון לגוגל מפות") {
+        addTool("◉", "כניסה ובחירת חשבון לגוגל מפות", {
             hideFloatingBar()
             loadUrlWithHeaders(ACCOUNT_CHOOSER_URL)
-        }
-        addTool("×", "סגור סרגל") { hideFloatingBar() }
+        })
+        addTool("×", "סגור סרגל", { hideFloatingBar() })
 
         val statusBarHeight = resources.getIdentifier("status_bar_height", "dimen", "android")
             .takeIf { it > 0 }?.let { resources.getDimensionPixelSize(it) } ?: dp(24)
