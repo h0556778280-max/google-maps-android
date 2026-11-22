@@ -1,6 +1,8 @@
 package com.haim.maps
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.content.pm.PackageManager
 import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -12,7 +14,9 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.net.Uri
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -24,6 +28,8 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -38,6 +44,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var floatingBar: LinearLayout
     private val handler = Handler(Looper.getMainLooper())
     private val hideBarRunnable = Runnable { hideFloatingBar() }
+    private var pendingGeolocationRequest: Pair<String, GeolocationPermissions.Callback>? = null
+    private val locationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        val pending = pendingGeolocationRequest
+        pendingGeolocationRequest = null
+        pending?.let { (origin, callback) ->
+            callback.invoke(origin, hasLocationPermission(), false)
+        }
+    }
 
     private var isDesktopMode = false
     private var desktopWidth = 1366
@@ -63,6 +79,7 @@ class MainActivity : ComponentActivity() {
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = true
+                geolocationEnabled = true
                 allowContentAccess = true
                 allowFileAccess = true
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -110,6 +127,30 @@ class MainActivity : ComponentActivity() {
                 }
             }
             webChromeClient = object : WebChromeClient() {
+                override fun onGeolocationPermissionsShowPrompt(
+                    origin: String?,
+                    callback: GeolocationPermissions.Callback?
+                ) {
+                    if (origin == null || callback == null || !isTrustedMapsOrigin(origin)) {
+                        callback?.invoke(origin ?: "", false, false)
+                        return
+                    }
+                    if (hasLocationPermission()) {
+                        callback.invoke(origin, true, false)
+                    } else {
+                        pendingGeolocationRequest?.let { (previousOrigin, previousCallback) ->
+                            previousCallback.invoke(previousOrigin, false, false)
+                        }
+                        pendingGeolocationRequest = origin to callback
+                        locationPermissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
+                    }
+                }
+
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
                     super.onProgressChanged(view, newProgress)
                     if (newProgress >= 15) view?.evaluateJavascript(buildDesktopOverrideScript(isDesktopMode), null)
@@ -178,6 +219,26 @@ class MainActivity : ComponentActivity() {
                 else finish()
             }
         })
+    }
+
+    private fun hasLocationPermission(): Boolean {
+        val fineGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        return fineGranted || coarseGranted
+    }
+
+    private fun isTrustedMapsOrigin(origin: String): Boolean {
+        return try {
+            val uri = Uri.parse(origin)
+            val host = uri.host?.lowercase() ?: return false
+            uri.scheme == "https" && (host == "google.com" || host.endsWith(".google.com"))
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /** Same desktop/mobile client-hint headers as the original BrowserScreen. */
