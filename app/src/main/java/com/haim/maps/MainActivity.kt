@@ -1,6 +1,7 @@
 package com.haim.maps
 
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -38,6 +39,8 @@ class MainActivity : ComponentActivity() {
     private val hideBarRunnable = Runnable { hideFloatingBar() }
 
     private var isDesktopMode = false
+    private var desktopWidth = 1366
+    private var desktopHeight = 768
     private var startY = 0f
     private var startX = 0f
     private var isSwipingDown = false
@@ -47,7 +50,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mobileUserAgent = WebSettings.getDefaultUserAgent(this)
-        isDesktopMode = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getBoolean(KEY_DESKTOP_MODE, false)
+        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).apply {
+            isDesktopMode = getBoolean(KEY_DESKTOP_MODE, false)
+            desktopWidth = getInt(KEY_DESKTOP_WIDTH, 1366)
+            desktopHeight = getInt(KEY_DESKTOP_HEIGHT, 768)
+        }
 
         webView = WebView(this).apply {
             settings.apply {
@@ -234,7 +241,7 @@ class MainActivity : ComponentActivity() {
                 document.getElementsByTagName('head')[0].appendChild(meta);
             }
             if ($desktop) {
-                meta.setAttribute('content', 'width=1366, initial-scale=0.25, maximum-scale=5.0, user-scalable=yes');
+                meta.setAttribute('content', 'width=$desktopWidth, initial-scale=0.25, maximum-scale=5.0, user-scalable=yes');
             } else {
                 meta.setAttribute('content', 'width=device-width, user-scalable=yes, initial-scale=1.0');
             }
@@ -244,10 +251,10 @@ class MainActivity : ComponentActivity() {
             }
             Object.defineProperty(navigator, 'maxTouchPoints', { get: () => ${if (desktop) 0 else 5} });
             if ($desktop) {
-                Object.defineProperty(window.screen, 'width', { get: () => 1366 });
-                Object.defineProperty(window.screen, 'availWidth', { get: () => 1366 });
-                Object.defineProperty(window.screen, 'height', { get: () => 768 });
-                Object.defineProperty(window.screen, 'availHeight', { get: () => 768 });
+                Object.defineProperty(window.screen, 'width', { get: () => $desktopWidth });
+                Object.defineProperty(window.screen, 'availWidth', { get: () => $desktopWidth });
+                Object.defineProperty(window.screen, 'height', { get: () => $desktopHeight });
+                Object.defineProperty(window.screen, 'availHeight', { get: () => $desktopHeight });
                 Object.defineProperty(window, 'devicePixelRatio', { get: () => 1 });
                 if (!window.__originalMatchMedia) {
                     window.__originalMatchMedia = window.matchMedia;
@@ -282,7 +289,7 @@ class MainActivity : ComponentActivity() {
         addTool("‹", "הדף הקודם") { if (webView.canGoBack()) webView.goBack() }
         addTool("›", "הדף הבא") { if (webView.canGoForward()) webView.goForward() }
         addTool("↻", "רענון") { webView.reload(); hideFloatingBar() }
-        addTool(if (isDesktopMode) "▤" else "▣", if (isDesktopMode) "תצוגת מחשב פעילה — מעבר לתצוגת נייד" else "הפעלת תצוגת מחשב") { toggleDesktopMode() }
+        addTool(if (isDesktopMode) "▤" else "▣", if (isDesktopMode) "תצוגת מחשב פעילה — מעבר לתצוגת נייד" else "הפעלת תצוגת מחשב", { toggleDesktopMode() }, { showDesktopSizeDialog() })
         addDivider()
         addTool("◉", "כניסה ובחירת חשבון לגוגל מפות") {
             hideFloatingBar()
@@ -302,7 +309,7 @@ class MainActivity : ComponentActivity() {
         })
     }
 
-    private fun addTool(symbol: String, description: String, action: () -> Unit) {
+    private fun addTool(symbol: String, description: String, action: () -> Unit, longAction: (() -> Unit)? = null) {
         val button = TextView(this).apply {
             text = symbol
             textSize = 25f
@@ -313,6 +320,7 @@ class MainActivity : ComponentActivity() {
             isFocusable = true
             background = selectableItemBackground()
             setOnClickListener { action() }
+            longAction?.let { callback -> setOnLongClickListener { callback(); true } }
         }
         floatingBar.addView(button, LinearLayout.LayoutParams(dp(48), dp(48)))
     }
@@ -331,6 +339,32 @@ class MainActivity : ComponentActivity() {
         val drawable = typedArray.getDrawable(0)
         typedArray.recycle()
         return drawable
+    }
+
+    private fun showDesktopSizeDialog() {
+        val sizes = arrayOf(
+            "1024 × 768 — מחשב קטן",
+            "1280 × 800 — מחשב רגיל",
+            "1366 × 768 — מחשב נייד נפוץ",
+            "1600 × 900 — מסך גדול",
+            "1920 × 1080 — Full HD"
+        )
+        val dimensions = arrayOf(1024 to 768, 1280 to 800, 1366 to 768, 1600 to 900, 1920 to 1080)
+        val selected = dimensions.indexOfFirst { it.first == desktopWidth && it.second == desktopHeight }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("בחירת גודל תצוגת מחשב")
+            .setSingleChoiceItems(sizes, selected) { dialog, which ->
+                desktopWidth = dimensions[which].first
+                desktopHeight = dimensions[which].second
+                getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit()
+                    .putInt(KEY_DESKTOP_WIDTH, desktopWidth)
+                    .putInt(KEY_DESKTOP_HEIGHT, desktopHeight)
+                    .apply()
+                dialog.dismiss()
+                if (isDesktopMode) webView.url?.let { loadUrlWithHeaders(it) }
+            }
+            .setNegativeButton("ביטול", null)
+            .show()
     }
 
     /** Original desktop toggle: change UA, reload with client hints, then apply JS overrides. */
@@ -398,6 +432,8 @@ class MainActivity : ComponentActivity() {
         private const val BAR_TIMEOUT_MS = 6_000L
         private const val PREFERENCES_NAME = "maps_app_preferences"
         private const val KEY_DESKTOP_MODE = "desktop_mode_enabled"
+        private const val KEY_DESKTOP_WIDTH = "desktop_width"
+        private const val KEY_DESKTOP_HEIGHT = "desktop_height"
         private const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
