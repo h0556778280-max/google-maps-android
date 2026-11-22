@@ -19,6 +19,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -350,21 +351,79 @@ class MainActivity : ComponentActivity() {
             "1920 × 1080 — Full HD"
         )
         val dimensions = arrayOf(1024 to 768, 1280 to 800, 1366 to 768, 1600 to 900, 1920 to 1080)
-        val selected = dimensions.indexOfFirst { it.first == desktopWidth && it.second == desktopHeight }.coerceAtLeast(0)
-        AlertDialog.Builder(this)
+        val selected = dimensions.indexOfFirst { it.first == desktopWidth && it.second == desktopHeight }
+        val dialog = AlertDialog.Builder(this)
             .setTitle("בחירת גודל תצוגת מחשב")
-            .setSingleChoiceItems(sizes, selected) { dialog, which ->
-                desktopWidth = dimensions[which].first
-                desktopHeight = dimensions[which].second
-                getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit()
-                    .putInt(KEY_DESKTOP_WIDTH, desktopWidth)
-                    .putInt(KEY_DESKTOP_HEIGHT, desktopHeight)
-                    .apply()
-                dialog.dismiss()
-                if (isDesktopMode) webView.url?.let { loadUrlWithHeaders(it) }
+            .setSingleChoiceItems(sizes + "הגדרת גודל מותאם אישית…", if (selected >= 0) selected else -1) { d, which ->
+                if (which < dimensions.size) {
+                    saveDesktopSize(dimensions[which].first, dimensions[which].second)
+                    d.dismiss()
+                } else {
+                    d.dismiss()
+                    showCustomDesktopSizeDialog()
+                }
             }
             .setNegativeButton("ביטול", null)
-            .show()
+            .create()
+        dialog.show()
+    }
+
+    private fun showCustomDesktopSizeDialog() {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(8), dp(24), dp(4))
+        }
+        val widthInput = EditText(this).apply {
+            hint = "רוחב בפיקסלים (למשל 1440)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(desktopWidth.toString())
+            selectAll()
+        }
+        val heightInput = EditText(this).apply {
+            hint = "גובה בפיקסלים (למשל 900)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(desktopHeight.toString())
+            selectAll()
+        }
+        content.addView(TextView(this).apply { text = "רוחב מסך"; textSize = 14f })
+        content.addView(widthInput)
+        content.addView(TextView(this).apply {
+            text = "גובה מסך"
+            textSize = 14f
+            setPadding(0, dp(12), 0, 0)
+        })
+        content.addView(heightInput)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("גודל תצוגה מותאם אישית")
+            .setView(content)
+            .setPositiveButton("שמירה", null)
+            .setNegativeButton("ביטול", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val width = widthInput.text.toString().toIntOrNull()
+                val height = heightInput.text.toString().toIntOrNull()
+                if (width == null || height == null || width !in 320..7680 || height !in 320..4320) {
+                    if (width == null || width !in 320..7680) widthInput.error = "יש להזין רוחב בין 320 ל־7680"
+                    if (height == null || height !in 320..4320) heightInput.error = "יש להזין גובה בין 320 ל־4320"
+                    return@setOnClickListener
+                }
+                saveDesktopSize(width, height)
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun saveDesktopSize(width: Int, height: Int) {
+        desktopWidth = width
+        desktopHeight = height
+        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit()
+            .putInt(KEY_DESKTOP_WIDTH, desktopWidth)
+            .putInt(KEY_DESKTOP_HEIGHT, desktopHeight)
+            .apply()
+        if (isDesktopMode) webView.url?.let { loadUrlWithHeaders(it) }
     }
 
     /** Original desktop toggle: change UA, reload with client hints, then apply JS overrides. */
