@@ -29,6 +29,8 @@ class MainActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var desktopMode = false
     private var startY = 0f
+    private var startX = 0f
+    private var mobileUserAgent: String? = null
 
     private val hideBarRunnable = Runnable { floatingBar.visibility = View.GONE }
 
@@ -53,11 +55,13 @@ class MainActivity : ComponentActivity() {
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         startY = event.rawY
+                        startX = event.rawX
                         hideFloatingBar()
                     }
                     MotionEvent.ACTION_UP -> {
                         val deltaY = event.rawY - startY
-                        if (deltaY > dp(120) && kotlin.math.abs(deltaY) > kotlin.math.abs(event.rawX) * 0.0f) {
+                        val deltaX = event.rawX - startX
+                        if (deltaY > dp(120) && kotlin.math.abs(deltaY) > kotlin.math.abs(deltaX) * 1.5f) {
                             if (!canScrollVertically(-1) || scrollY <= 2) showFloatingBar()
                         }
                     }
@@ -72,6 +76,7 @@ class MainActivity : ComponentActivity() {
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.MATCH_PARENT
         ))
+        mobileUserAgent = webView.settings.userAgentString
         createFloatingBar()
         setContentView(root)
 
@@ -154,7 +159,7 @@ class MainActivity : ComponentActivity() {
         webView.settings.userAgentString = if (desktopMode) {
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         } else {
-            WebView(this).settings.userAgentString
+            mobileUserAgent ?: webView.settings.userAgentString
         }
         webView.settings.useWideViewPort = desktopMode
         webView.settings.loadWithOverviewMode = desktopMode
