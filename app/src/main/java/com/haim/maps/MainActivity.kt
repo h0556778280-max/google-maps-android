@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
                 javaScriptEnabled = true
                 domStorageEnabled = true
                 databaseEnabled = true
-                geolocationEnabled = true
+                setGeolocationEnabled(true)
                 allowContentAccess = true
                 allowFileAccess = true
                 mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
