@@ -73,7 +73,7 @@ class MainActivity : ComponentActivity() {
                 builtInZoomControls = true
                 displayZoomControls = false
                 useWideViewPort = true
-                loadWithOverviewMode = true
+                loadWithOverviewMode = !isDesktopMode
                 userAgentString = if (isDesktopMode) DESKTOP_USER_AGENT else mobileUserAgent
             }
             CookieManager.getInstance().setAcceptCookie(true)
@@ -236,8 +236,11 @@ class MainActivity : ComponentActivity() {
     }
 
     /** The original JavaScript device/viewport overrides used by the toolbar's desktop toggle. */
-    private fun buildDesktopOverrideScript(desktop: Boolean): String = """
+    private fun buildDesktopOverrideScript(desktop: Boolean): String {
+        val availableCssWidth = (if (::webView.isInitialized && webView.width > 0) webView.width / resources.displayMetrics.density else resources.displayMetrics.widthPixels / resources.displayMetrics.density).toInt().coerceAtLeast(1)
+        return """
         (function() {
+            window.__nativeWebViewWidth = $availableCssWidth;
             var meta = document.querySelector('meta[name="viewport"]');
             if (!meta) {
                 meta = document.createElement('meta');
@@ -245,7 +248,9 @@ class MainActivity : ComponentActivity() {
                 document.getElementsByTagName('head')[0].appendChild(meta);
             }
             if ($desktop) {
-                meta.setAttribute('content', 'width=$desktopWidth, initial-scale=0.25, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes');
+                var availableCssWidth = Math.max(1, window.__nativeWebViewWidth || window.innerWidth || $desktopWidth);
+                var desktopScale = Math.max(0.1, Math.min(1.0, availableCssWidth / $desktopWidth));
+                meta.setAttribute('content', 'width=$desktopWidth, initial-scale=' + desktopScale + ', minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes');
                 window.dispatchEvent(new Event('resize'));
                 if (window.visualViewport) window.visualViewport.dispatchEvent(new Event('resize'));
             } else {
@@ -275,6 +280,7 @@ class MainActivity : ComponentActivity() {
             }
         })();
     """.trimIndent()
+    }
 
     private fun createFloatingBar() {
         floatingBar = LinearLayout(this).apply {
