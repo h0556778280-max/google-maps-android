@@ -22,6 +22,9 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.activity.OnBackPressedCallback
 import java.net.HttpURLConnection
 import java.net.URL
@@ -128,12 +131,33 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        root = FrameLayout(this)
+        // Draw edge-to-edge, but keep the Maps WebView below the system bars.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.WHITE
+        window.navigationBarColor = Color.WHITE
+        root = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
         root.addView(webView, FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT
         ))
         createFloatingBar()
         setContentView(root)
+        WindowCompat.getInsetsController(window, root).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            (webView.layoutParams as FrameLayout.LayoutParams).apply {
+                topMargin = bars.top
+                bottomMargin = bars.bottom
+            }.also { webView.layoutParams = it }
+            (floatingBar.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
+                params.topMargin = bars.top + dp(16)
+                floatingBar.layoutParams = params
+            }
+            insets
+        }
+        ViewCompat.requestApplyInsets(root)
 
         if (savedInstanceState != null) webView.restoreState(savedInstanceState)
         else loadUrlWithHeaders(MAPS_URL)
