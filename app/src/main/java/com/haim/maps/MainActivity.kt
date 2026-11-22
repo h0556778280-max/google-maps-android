@@ -6,6 +6,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -43,6 +44,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         mobileUserAgent = WebSettings.getDefaultUserAgent(this)
+        isDesktopMode = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getBoolean(KEY_DESKTOP_MODE, false)
 
         webView = WebView(this).apply {
             settings.apply {
@@ -58,7 +60,7 @@ class MainActivity : ComponentActivity() {
                 displayZoomControls = false
                 useWideViewPort = true
                 loadWithOverviewMode = true
-                userAgentString = mobileUserAgent
+                userAgentString = if (isDesktopMode) DESKTOP_USER_AGENT else mobileUserAgent
             }
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
@@ -69,6 +71,11 @@ class MainActivity : ComponentActivity() {
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                     super.onPageStarted(view, url, favicon)
+                    if (url != null && !BrowserConfig.isUrlAllowed(url)) {
+                        view?.stopLoading()
+                        showBlockedPage(url)
+                        return
+                    }
                     view?.evaluateJavascript(buildDesktopOverrideScript(isDesktopMode), null)
                 }
 
@@ -77,7 +84,18 @@ class MainActivity : ComponentActivity() {
                     view?.evaluateJavascript(buildDesktopOverrideScript(isDesktopMode), null)
                 }
 
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean = false
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val uri = request?.url ?: return true
+                    val destination = uri.toString()
+                    if (destination.startsWith("http://") || destination.startsWith("https://")) {
+                        if (!BrowserConfig.isUrlAllowed(destination)) {
+                            showBlockedPage(destination)
+                            return true
+                        }
+                        return false
+                    }
+                    return !BrowserConfig.isUrlAllowed(destination)
+                }
             }
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -240,7 +258,7 @@ class MainActivity : ComponentActivity() {
         addTool("‹", "הדף הקודם") { if (webView.canGoBack()) webView.goBack() }
         addTool("›", "הדף הבא") { if (webView.canGoForward()) webView.goForward() }
         addTool("↻", "רענון") { webView.reload(); hideFloatingBar() }
-        addTool(if (isDesktopMode) "▣" else "▤", "מעבר לתצוגת מחשב") { toggleDesktopMode() }
+        addTool(if (isDesktopMode) "▤" else "▣", if (isDesktopMode) "תצוגת מחשב פעילה — מעבר לתצוגת נייד" else "הפעלת תצוגת מחשב") { toggleDesktopMode() }
         addDivider()
         addTool("◉", "כניסה ובחירת חשבון לגוגל מפות") {
             hideFloatingBar()
@@ -294,6 +312,7 @@ class MainActivity : ComponentActivity() {
     /** Original desktop toggle: change UA, reload with client hints, then apply JS overrides. */
     private fun toggleDesktopMode() {
         isDesktopMode = !isDesktopMode
+        getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit().putBoolean(KEY_DESKTOP_MODE, isDesktopMode).apply()
         webView.settings.userAgentString = if (isDesktopMode) DESKTOP_USER_AGENT else mobileUserAgent
         webView.url?.let { loadUrlWithHeaders(it) } ?: webView.reload()
 
@@ -301,6 +320,13 @@ class MainActivity : ComponentActivity() {
         button?.text = if (isDesktopMode) "▤" else "▣"
         button?.contentDescription = if (isDesktopMode) "מעבר לתצוגת נייד" else "מעבר לתצוגת מחשב"
         hideFloatingBar()
+    }
+
+    private fun showBlockedPage(blockedUrl: String) {
+        val safeUrl = TextUtils.htmlEncode(blockedUrl)
+        val html = "<!doctype html><html lang=\"he\" dir=\"rtl\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>האתר חסום</title></head><body style=\"font-family:sans-serif;background:#f5f5f5;color:#222;padding:28px;text-align:center\"><h2>האתר הזה אינו מורשה באפליקציה</h2><p>הכתובת שנחסמה:</p><p style=\"direction:ltr;overflow-wrap:anywhere\">$safeUrl</p><button onclick=\"history.back()\" style=\"padding:12px 24px;font-size:16px\">חזרה</button></body></html>"
+        webView.stopLoading()
+        webView.loadDataWithBaseURL("about:blank", html, "text/html", "UTF-8", null)
     }
 
     private fun showFloatingBar() {
@@ -346,6 +372,8 @@ class MainActivity : ComponentActivity() {
         private const val ACCOUNT_CHOOSER_URL =
             "https://accounts.google.com/AccountChooser?continue=https://www.google.com/maps"
         private const val BAR_TIMEOUT_MS = 6_000L
+        private const val PREFERENCES_NAME = "maps_app_preferences"
+        private const val KEY_DESKTOP_MODE = "desktop_mode_enabled"
         private const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
