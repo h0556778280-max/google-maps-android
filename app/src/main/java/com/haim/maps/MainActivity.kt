@@ -30,6 +30,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.activity.OnBackPressedCallback
 import java.net.HttpURLConnection
 import java.net.URL
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** Google Maps WebView with the original floating toolbar behavior restored. */
 class MainActivity : ComponentActivity() {
@@ -42,6 +44,7 @@ class MainActivity : ComponentActivity() {
     private var isDesktopMode = false
     private var desktopWidth = 1366
     private var desktopHeight = 768
+    private data class DesktopProfile(val name: String, val width: Int, val height: Int)
     private var startY = 0f
     private var startX = 0f
     private var isSwipingDown = false
@@ -242,7 +245,9 @@ class MainActivity : ComponentActivity() {
                 document.getElementsByTagName('head')[0].appendChild(meta);
             }
             if ($desktop) {
-                meta.setAttribute('content', 'width=$desktopWidth, initial-scale=0.25, maximum-scale=5.0, user-scalable=yes');
+                meta.setAttribute('content', 'width=$desktopWidth, initial-scale=0.25, minimum-scale=0.1, maximum-scale=5.0, user-scalable=yes');
+                window.dispatchEvent(new Event('resize'));
+                if (window.visualViewport) window.visualViewport.dispatchEvent(new Event('resize'));
             } else {
                 meta.setAttribute('content', 'width=device-width, user-scalable=yes, initial-scale=1.0');
             }
@@ -343,35 +348,59 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showDesktopSizeDialog() {
-        val sizes = arrayOf(
-            "1024 × 768 — מחשב קטן",
-            "1280 × 800 — מחשב רגיל",
-            "1366 × 768 — מחשב נייד נפוץ",
-            "1600 × 900 — מסך גדול",
-            "1920 × 1080 — Full HD"
+        val builtIn = listOf(
+            DesktopProfile("מחשב קטן", 1024, 768),
+            DesktopProfile("מחשב רגיל", 1280, 800),
+            DesktopProfile("מחשב נייד נפוץ", 1366, 768),
+            DesktopProfile("מסך גדול", 1600, 900),
+            DesktopProfile("Full HD", 1920, 1080)
         )
-        val dimensions = arrayOf(1024 to 768, 1280 to 800, 1366 to 768, 1600 to 900, 1920 to 1080)
-        val selected = dimensions.indexOfFirst { it.first == desktopWidth && it.second == desktopHeight }
-        val dialog = AlertDialog.Builder(this)
+        val custom = loadDesktopProfiles()
+        val profiles = builtIn + custom
+        val labels = profiles.map { "${it.name} — ${it.width} × ${it.height}" }.toMutableList()
+        labels.add("＋ הוספת מחשב מותאם אישית…")
+        val selected = profiles.indexOfFirst { it.width == desktopWidth && it.height == desktopHeight }
+        AlertDialog.Builder(this)
             .setTitle("בחירת גודל תצוגת מחשב")
-            .setSingleChoiceItems(sizes + "הגדרת גודל מותאם אישית…", if (selected >= 0) selected else -1) { d, which ->
-                if (which < dimensions.size) {
-                    saveDesktopSize(dimensions[which].first, dimensions[which].second)
-                    d.dismiss()
+            .setSingleChoiceItems(labels.toTypedArray(), selected) { dialog, which ->
+                if (which < profiles.size) {
+                    val profile = profiles[which]
+                    saveDesktopSize(profile.width, profile.height)
+                    dialog.dismiss()
                 } else {
-                    d.dismiss()
+                    dialog.dismiss()
                     showCustomDesktopSizeDialog()
                 }
             }
-            .setNegativeButton("ביטול", null)
-            .create()
-        dialog.show()
+            .setNegativeButton("סגור", null)
+            .show()
+    }
+
+    private fun loadDesktopProfiles(): List<DesktopProfile> {
+        val raw = getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).getString(KEY_DESKTOP_PROFILES, "[]") ?: "[]"
+        return try {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { index ->
+                val item = array.optJSONObject(index) ?: return@mapNotNull null
+                val name = item.optString("name").trim()
+                val width = item.optInt("width", 0)
+                val height = item.optInt("height", 0)
+                if (name.isNotEmpty() && width in 320..7680 && height in 320..4320)
+                    DesktopProfile(name, width, height) else null
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     private fun showCustomDesktopSizeDialog() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(24), dp(8), dp(24), dp(4))
+        }
+        val nameInput = EditText(this).apply {
+            hint = "שם המחשב (למשל המחשב שלי)"
+            setSingleLine(true)
         }
         val widthInput = EditText(this).apply {
             hint = "רוחב בפיקסלים (למשל 1440)"
@@ -385,30 +414,47 @@ class MainActivity : ComponentActivity() {
             setText(desktopHeight.toString())
             selectAll()
         }
-        content.addView(TextView(this).apply { text = "רוחב מסך"; textSize = 14f })
+        content.addView(TextView(this).apply { text = "שם המחשב"; textSize = 14f })
+        content.addView(nameInput)
+        content.addView(TextView(this).apply { text = "רוחב מסך"; textSize = 14f; setPadding(0, dp(10), 0, 0) })
         content.addView(widthInput)
-        content.addView(TextView(this).apply {
-            text = "גובה מסך"
-            textSize = 14f
-            setPadding(0, dp(12), 0, 0)
-        })
+        content.addView(TextView(this).apply { text = "גובה מסך"; textSize = 14f; setPadding(0, dp(10), 0, 0) })
         content.addView(heightInput)
 
         val dialog = AlertDialog.Builder(this)
-            .setTitle("גודל תצוגה מותאם אישית")
+            .setTitle("הוספת מחשב מותאם אישית")
             .setView(content)
-            .setPositiveButton("שמירה", null)
+            .setPositiveButton("הוסף ושמור", null)
             .setNegativeButton("ביטול", null)
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = nameInput.text.toString().trim()
                 val width = widthInput.text.toString().toIntOrNull()
                 val height = heightInput.text.toString().toIntOrNull()
-                if (width == null || height == null || width !in 320..7680 || height !in 320..4320) {
-                    if (width == null || width !in 320..7680) widthInput.error = "יש להזין רוחב בין 320 ל־7680"
-                    if (height == null || height !in 320..4320) heightInput.error = "יש להזין גובה בין 320 ל־4320"
+                if (name.isBlank()) {
+                    nameInput.error = "יש לתת שם למחשב"
                     return@setOnClickListener
                 }
+                if (width == null || width !in 320..7680) {
+                    widthInput.error = "יש להזין רוחב בין 320 ל־7680"
+                    return@setOnClickListener
+                }
+                if (height == null || height !in 320..4320) {
+                    heightInput.error = "יש להזין גובה בין 320 ל־4320"
+                    return@setOnClickListener
+                }
+                val profiles = loadDesktopProfiles().toMutableList()
+                val duplicate = profiles.indexOfFirst { it.name.equals(name, ignoreCase = true) }
+                val profile = DesktopProfile(name, width, height)
+                if (duplicate >= 0) profiles[duplicate] = profile else profiles.add(profile)
+                val array = JSONArray()
+                profiles.forEach { p ->
+                    array.put(JSONObject().put("name", p.name).put("width", p.width).put("height", p.height))
+                }
+                getSharedPreferences(PREFERENCES_NAME, MODE_PRIVATE).edit()
+                    .putString(KEY_DESKTOP_PROFILES, array.toString())
+                    .apply()
                 saveDesktopSize(width, height)
                 dialog.dismiss()
             }
@@ -493,6 +539,7 @@ class MainActivity : ComponentActivity() {
         private const val KEY_DESKTOP_MODE = "desktop_mode_enabled"
         private const val KEY_DESKTOP_WIDTH = "desktop_width"
         private const val KEY_DESKTOP_HEIGHT = "desktop_height"
+        private const val KEY_DESKTOP_PROFILES = "desktop_profiles"
         private const val DESKTOP_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
